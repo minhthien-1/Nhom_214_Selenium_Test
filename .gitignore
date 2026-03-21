@@ -1,0 +1,15 @@
+## Thư mục chứa file thực thi (Rác build)
+[Bb]in/
+[Oo]bj/
+
+## Thư mục cấu hình ẩn của Visual Studio
+.vs/
+
+## File cấu hình cá nhân của người dùng
+*.user
+*.userosscache
+*.sln.docstates
+
+## File log và file tạm
+*.log
+*.tmp
