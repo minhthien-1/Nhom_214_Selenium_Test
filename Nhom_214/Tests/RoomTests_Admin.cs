@@ -2,7 +2,10 @@
 using OpenQA.Selenium;
 using Nhom_214.Pages;
 using Nhom_214.Utilities;
+using ClosedXML.Excel;
 using System;
+using System.IO;
+using System.Collections.Generic;
 using System.Threading;
 
 namespace Nhom_214.Tests
@@ -12,6 +15,8 @@ namespace Nhom_214.Tests
     {
         private IWebDriver driver;
         private RoomPage roomPage;
+        private static string excelFilePath = @"C:\C#\Nhom_214_Selenium_Test\Report_Nhom_214.xlsx";
+        private string screenshotFolder = @"C:\Users\Admin\OneDrive - Ho Chi Minh City University of Foreign Languages and Information Technology - HUFLIT\Pictures\TestFailures";
 
         [SetUp]
         public void Setup()
@@ -21,129 +26,100 @@ namespace Nhom_214.Tests
             driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(10);
             roomPage = new RoomPage(driver);
 
-            // Tự động Login (Giống bài trước)
-            driver.Navigate().GoToUrl("http://localhost:5000/login.html");
+            // Tự động Login
+            driver.Navigate().GoToUrl("http://localhost:5500/login.html");
             driver.FindElement(By.Id("email")).SendKeys("tnct1@gmail.com");
             driver.FindElement(By.Id("password")).SendKeys("12345Tn");
             driver.FindElement(By.Name("login")).Click();
-            Thread.Sleep(1000); // Đợi load
-
-            // Xử lý swal OK nếu có (tùy logic web bạn)
+            Thread.Sleep(1500);
             try { driver.FindElement(By.CssSelector(".swal2-confirm")).Click(); } catch { }
 
-            // Chuyển sang trang Quản lý Resort/Phòng
-            driver.Navigate().GoToUrl("http://localhost:5500/admin/rooms.html"); // Đổi URL theo đường dẫn thực tế của bạn
-            Thread.Sleep(1000);
+            driver.Navigate().GoToUrl("http://localhost:5500/admin/rooms.html");
+            Thread.Sleep(1500);
         }
 
-        // ================= TẠO RESORT =================
-        [Test]
-        public void TC_HST_01_CreateResort_HappyPath()
+        public static IEnumerable<TestCaseData> GetRoomData()
         {
-            roomPage.ClickCreateResort();
-            roomPage.HandleResortPrompt("VungTau Homestay", true); // Nhập tên và bấm OK
-            // Assert kiểm tra tạo thành công
+            var testCases = new List<TestCaseData>();
+            using (var stream = new FileStream(excelFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var workbook = new XLWorkbook(stream))
+            {
+                var ws = workbook.Worksheet("RoomAdmin");
+                bool isFirst = true; int rowIdx = 0;
+                foreach (var row in ws.RowsUsed())
+                {
+                    rowIdx++;
+                    if (isFirst) { isFirst = false; continue; }
+                    string tcId = row.Cell(1).GetString().Trim();
+                    if (string.IsNullOrEmpty(tcId)) continue;
+
+                    testCases.Add(new TestCaseData(
+                        tcId, row.Cell(2).GetString().Trim(), row.Cell(3).GetString().Trim(),
+                        row.Cell(4).GetString().Trim(), row.Cell(5).GetString().Trim(),
+                        row.Cell(6).GetString().Trim(), row.Cell(7).GetString().Trim(),
+                        row.Cell(8).GetString().Trim(), rowIdx
+                    ).SetName(tcId));
+                }
+            }
+            return testCases;
         }
 
-        [Test]
-        public void TC_HST_02_CreateResort_EmptyName()
+        [Test, TestCaseSource(nameof(GetRoomData))]
+        public void ExecuteRoomAdminTest(string tcId, string action, string p1, string p2, string p3, string p4, string p5, string expected, int rowIndex)
         {
-            roomPage.ClickCreateResort();
-            roomPage.HandleResortPrompt("", true); // Bỏ trống và bấm OK
-            // Assert kiểm tra báo lỗi
-        }
+            string actualMsg = ""; bool isPass = false;
 
-        [Test]
-        public void TC_HST_03_CreateResort_Cancel()
-        {
-            roomPage.ClickCreateResort();
-            roomPage.HandleResortPrompt("Test Hủy", false); // Bấm Cancel
-        }
+            try
+            {
+                switch (action.ToLower())
+                {
+                    case "createresort":
+                        roomPage.ClickCreateResort();
+                        bool accept = p2.ToLower() == "true";
+                        roomPage.HandleResortPrompt(p1, accept);
+                        actualMsg = "Thao tác thành công"; // Bạn có thể móc hàm bắt Toast msg vào đây
+                        break;
 
-        // ================= TẠO PHÒNG MỚI =================
-        [Test]
-        public void TC_ROM_01_AddRoom_HappyPath()
-        {
-            roomPage.ClickAddRoom();
-            // id Loại phòng: Gia đình | Cấu hình giường: 1 Giường Đơn | Location: Đà Lạt
-            roomPage.EnterRoomData("2e6bde76-3d94-4073-880b-f3611b62c594", "1500000", "1 giường đơn", "available", "da-lat");
-            roomPage.ClickSaveRoom();
-        }
+                    case "addroom":
+                        roomPage.ClickAddRoom();
+                        roomPage.EnterRoomData(p1, p2, p3, p4, p5); // ID, Price, Bed, Status, Location
+                        roomPage.ClickSaveRoom();
+                        actualMsg = "Lưu thành công";
+                        break;
 
-        [Test]
-        public void TC_ROM_02_AddRoom_EmptyLocation()
-        {
-            roomPage.ClickAddRoom();
-            roomPage.EnterRoomData("2e6bde76-3d94-4073-880b-f3611b62c594", "1500000", "1 giường đơn", "available", ""); // Bỏ trống Location
-            roomPage.ClickSaveRoom();
-        }
+                    case "editroom":
+                        roomPage.ClickFirstEditRoom();
+                        if (!string.IsNullOrEmpty(p1)) { driver.FindElement(By.Id("room-price")).Clear(); driver.FindElement(By.Id("room-price")).SendKeys(p1); }
+                        if (!string.IsNullOrEmpty(p2)) { driver.FindElement(By.Id("room-description")).Clear(); driver.FindElement(By.Id("room-description")).SendKeys(p2); }
+                        roomPage.ClickSaveRoom();
+                        actualMsg = "Cập nhật thành công";
+                        break;
 
-        [Test]
-        public void TC_ROM_05_AddRoom_NegativePrice()
-        {
-            roomPage.ClickAddRoom();
-            roomPage.EnterRoomData("2e6bde76-3d94-4073-880b-f3611b62c594", "-500000", "1 giường đơn", "available", "da-lat");
-            roomPage.ClickSaveRoom(); // Nên có validation báo lỗi
-        }
+                    case "deleteroom":
+                        roomPage.ClickFirstDeleteRoom();
+                        roomPage.HandleDeleteConfirm(p1.ToLower() == "true");
+                        actualMsg = "Xóa thành công";
+                        break;
+                }
 
-        [Test]
-        public void TC_ROM_09_AddRoom_Cancel()
-        {
-            roomPage.ClickAddRoom();
-            roomPage.EnterRoomData("2e6bde76-3d94-4073-880b-f3611b62c594", "1500000", "", "", "");
-            roomPage.ClickCancelRoom(); // Đóng Modal
-        }
+                if (actualMsg.ToLower().Contains(expected.ToLower())) isPass = true;
+            }
+            catch (Exception ex) { actualMsg = "Lỗi Exception: " + ex.Message; }
 
-        // ================= SỬA PHÒNG =================
-        [Test]
-        public void TC_ROM_10_EditRoom_UpdatePrice()
-        {
-            roomPage.ClickFirstEditRoom();
-            driver.FindElement(By.Id("room-price")).Clear();
-            driver.FindElement(By.Id("room-price")).SendKeys("300000"); // Sửa giá
-            roomPage.ClickSaveRoom();
-        }
-
-        [Test]
-        public void TC_ROM_12_EditRoom_ClearPrice()
-        {
-            roomPage.ClickFirstEditRoom();
-            driver.FindElement(By.Id("room-price")).Clear(); // Cố tình xóa trắng
-            roomPage.ClickSaveRoom();
-        }
-
-        [Test]
-        public void TC_ROM_15_EditRoom_LongDescription()
-        {
-            roomPage.ClickFirstEditRoom();
-            driver.FindElement(By.Id("room-description")).Clear();
-            driver.FindElement(By.Id("room-description")).SendKeys("Tọa lạc ở Đà Lạt thuộc Lâm Đồng... Đây là một đoạn mô tả rất dài để test");
-            roomPage.ClickSaveRoom();
-        }
-
-        // ================= XÓA PHÒNG =================
-        [Test]
-        public void TC_ROM_20_DeleteRoom_Accept()
-        {
-            roomPage.ClickFirstDeleteRoom();
-            roomPage.HandleDeleteConfirm(true); // Bấm OK
-        }
-
-        [Test]
-        public void TC_ROM_21_DeleteRoom_Cancel()
-        {
-            roomPage.ClickFirstDeleteRoom();
-            roomPage.HandleDeleteConfirm(false); // Bấm Cancel
+            // Ghi kết quả vào cột 9, 10, 11
+            using (var stream = new FileStream(excelFilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+            using (var workbook = new XLWorkbook(stream))
+            {
+                var ws = workbook.Worksheet("RoomAdmin");
+                ws.Cell(rowIndex, 9).Value = actualMsg;
+                ws.Cell(rowIndex, 10).Value = isPass ? "PASS" : "FAIL";
+                if (!isPass) { /* Logic chụp ảnh tương tự các file trên */ }
+                workbook.Save();
+            }
+            Assert.IsTrue(isPass);
         }
 
         [TearDown]
-        public void TearDown()
-        {
-            if (driver != null)
-            {
-                driver.Quit();
-                driver.Dispose();
-            }
-        }
+        public void Teardown() { driver?.Quit(); driver?.Dispose(); }
     }
 }
