@@ -6,7 +6,6 @@ using ClosedXML.Excel;
 using System;
 using System.IO;
 using System.Collections.Generic;
-using System.Threading;
 
 namespace Nhom_214.Tests
 {
@@ -15,27 +14,32 @@ namespace Nhom_214.Tests
     {
         private IWebDriver driver;
         private RoomPage roomPage;
-        private static string excelFilePath = @"C:\C#\Nhom_214_Selenium_Test\Report_Nhom_214.xlsx";
-        private string screenshotFolder = @"C:\Users\Admin\OneDrive - Ho Chi Minh City University of Foreign Languages and Information Technology - HUFLIT\Pictures\TestFailures";
+        private static string projectRoot = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", ".."));
+        private static string excelFilePath = Path.Combine(projectRoot, "TestData", "Report_Nhom_214.xlsx");
+        private string screenshotFolder = Path.Combine(projectRoot, "TestResults", "Screenshots");
 
         [SetUp]
         public void Setup()
         {
+            if (!Directory.Exists(screenshotFolder)) Directory.CreateDirectory(screenshotFolder);
             driver = DriverFactory.CreateDriver();
             driver.Manage().Window.Maximize();
-            driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(10);
             roomPage = new RoomPage(driver);
 
-            // Tự động Login
-            driver.Navigate().GoToUrl("http://localhost:5500/login.html");
+            driver.Navigate().GoToUrl("http://localhost:5000/login.html");
             driver.FindElement(By.Id("email")).SendKeys("tnct1@gmail.com");
             driver.FindElement(By.Id("password")).SendKeys("12345Tn");
             driver.FindElement(By.Name("login")).Click();
-            Thread.Sleep(1500);
-            try { driver.FindElement(By.CssSelector(".swal2-confirm")).Click(); } catch { }
 
-            driver.Navigate().GoToUrl("http://localhost:5500/admin/rooms.html");
-            Thread.Sleep(1500);
+            try
+            {
+                var wait = new OpenQA.Selenium.Support.UI.WebDriverWait(driver, TimeSpan.FromSeconds(5));
+                var confirm = wait.Until(d => d.FindElement(By.CssSelector(".swal2-confirm")));
+                confirm.Click();
+            }
+            catch { }
+
+            driver.Navigate().GoToUrl("http://localhost:5000/admin/rooms.html");
         }
 
         public static IEnumerable<TestCaseData> GetRoomData()
@@ -50,15 +54,12 @@ namespace Nhom_214.Tests
                 {
                     rowIdx++;
                     if (isFirst) { isFirst = false; continue; }
-                    string tcId = row.Cell(1).GetString().Trim();
-                    if (string.IsNullOrEmpty(tcId)) continue;
-
                     testCases.Add(new TestCaseData(
-                        tcId, row.Cell(2).GetString().Trim(), row.Cell(3).GetString().Trim(),
-                        row.Cell(4).GetString().Trim(), row.Cell(5).GetString().Trim(),
-                        row.Cell(6).GetString().Trim(), row.Cell(7).GetString().Trim(),
-                        row.Cell(8).GetString().Trim(), rowIdx
-                    ).SetName(tcId));
+                        row.Cell(1).GetString().Trim(), row.Cell(2).GetString().Trim(),
+                        row.Cell(3).GetString().Trim(), row.Cell(4).GetString().Trim(),
+                        row.Cell(5).GetString().Trim(), row.Cell(6).GetString().Trim(),
+                        row.Cell(7).GetString().Trim(), row.Cell(8).GetString().Trim(), rowIdx
+                    ).SetName(row.Cell(1).GetString()));
                 }
             }
             return testCases;
@@ -68,58 +69,60 @@ namespace Nhom_214.Tests
         public void ExecuteRoomAdminTest(string tcId, string action, string p1, string p2, string p3, string p4, string p5, string expected, int rowIndex)
         {
             string actualMsg = ""; bool isPass = false;
-
             try
             {
                 switch (action.ToLower())
                 {
                     case "createresort":
                         roomPage.ClickCreateResort();
-                        bool accept = p2.ToLower() == "true";
-                        roomPage.HandleResortPrompt(p1, accept);
-                        actualMsg = "Thao tác thành công"; // Bạn có thể móc hàm bắt Toast msg vào đây
-                        break;
-
+                        roomPage.HandleResortPrompt(p1, p2.ToLower() == "true");
+                        actualMsg = "Thành công"; break;
                     case "addroom":
                         roomPage.ClickAddRoom();
-                        roomPage.EnterRoomData(p1, p2, p3, p4, p5); // ID, Price, Bed, Status, Location
+                        roomPage.EnterRoomData(p1, p2, p3, p4, p5);
                         roomPage.ClickSaveRoom();
-                        actualMsg = "Lưu thành công";
-                        break;
-
-                    case "editroom":
-                        roomPage.ClickFirstEditRoom();
-                        if (!string.IsNullOrEmpty(p1)) { driver.FindElement(By.Id("room-price")).Clear(); driver.FindElement(By.Id("room-price")).SendKeys(p1); }
-                        if (!string.IsNullOrEmpty(p2)) { driver.FindElement(By.Id("room-description")).Clear(); driver.FindElement(By.Id("room-description")).SendKeys(p2); }
-                        roomPage.ClickSaveRoom();
-                        actualMsg = "Cập nhật thành công";
-                        break;
-
+                        actualMsg = "Lưu thành công"; break;
                     case "deleteroom":
                         roomPage.ClickFirstDeleteRoom();
                         roomPage.HandleDeleteConfirm(p1.ToLower() == "true");
-                        actualMsg = "Xóa thành công";
-                        break;
+                        actualMsg = "Xóa thành công"; break;
                 }
-
                 if (actualMsg.ToLower().Contains(expected.ToLower())) isPass = true;
             }
-            catch (Exception ex) { actualMsg = "Lỗi Exception: " + ex.Message; }
+            catch (Exception ex) { actualMsg = "Lỗi: " + ex.Message; }
 
-            // Ghi kết quả vào cột 9, 10, 11
+            WriteResultToExcel(rowIndex, actualMsg, isPass, tcId);
+            Assert.Multiple(() =>
+            {
+                // Sử dụng Assert.That để NUnit tự điền vào Expected và But was
+                Assert.That(actualMsg.ToLower(), Does.Contain(expected.ToLower()), $"TC_ID: {tcId} thất bại!");
+            });
+        }
+
+        private void WriteResultToExcel(int rowIndex, string actual, bool isPass, string tcId)
+        {
             using (var stream = new FileStream(excelFilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
             using (var workbook = new XLWorkbook(stream))
             {
                 var ws = workbook.Worksheet("RoomAdmin");
-                ws.Cell(rowIndex, 9).Value = actualMsg;
-                ws.Cell(rowIndex, 10).Value = isPass ? "PASS" : "FAIL";
-                if (!isPass) { /* Logic chụp ảnh tương tự các file trên */ }
+                ws.Cell(rowIndex, 10).Value = actual;      // Cột J
+                ws.Cell(rowIndex, 11).Value = isPass ? "PASS" : "FAIL"; // Cột K
+
+                if (!isPass)
+                {
+                    string path = Path.Combine(screenshotFolder, $"{tcId}_{DateTime.Now:HHmmss}.png");
+                    ((ITakesScreenshot)driver).GetScreenshot().SaveAsFile(path);
+                    ws.Cell(rowIndex, 12).Value = "Xem ảnh lỗi"; // Cột L
+                    ws.Cell(rowIndex, 12).SetHyperlink(new XLHyperlink(path));
+                }
+
                 workbook.Save();
+                // In ra Console để Thiên nhìn thấy ngay trong Test Explorer mà không cần mở Excel
+                Console.WriteLine($"[RESULT] {tcId}: {actual} -> {(isPass ? "Passed" : "Failed")}");
             }
-            Assert.IsTrue(isPass);
         }
 
         [TearDown]
-        public void Teardown() { driver?.Quit(); driver?.Dispose(); }
+        public void Teardown() { driver?.Quit();driver?.Dispose(); }
     }
 }

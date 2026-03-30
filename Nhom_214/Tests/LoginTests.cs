@@ -1,14 +1,14 @@
-﻿using NUnit.Framework;
+﻿using ClosedXML.Excel;
+using DocumentFormat.OpenXml.Bibliography;
+using Nhom_214.Pages;
+using Nhom_214.Utilities;
+using NUnit.Framework;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Support.UI;
 using SeleniumExtras.WaitHelpers;
-using Nhom_214.Pages;
-using Nhom_214.Utilities;
-using ClosedXML.Excel;
 using System;
-using System.IO;
 using System.Collections.Generic;
-using System.Threading;
+using System.IO;
 
 namespace Nhom_214.Tests
 {
@@ -17,8 +17,9 @@ namespace Nhom_214.Tests
     {
         private IWebDriver driver;
         private LoginPage loginPage;
-        private static string excelFilePath = @"C:\C#\Nhom_214_Selenium_Test\Report_Nhom_214.xlsx";
-        private string screenshotFolder = @"C:\Users\Admin\OneDrive - Ho Chi Minh City University of Foreign Languages and Information Technology - HUFLIT\Pictures\TestFailures";
+        private static string projectRoot = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", ".."));
+        private static string excelFilePath = Path.Combine(projectRoot, "TestData", "Report_Nhom_214.xlsx");
+        private string screenshotFolder = Path.Combine(projectRoot, "TestResults", "Screenshots");
 
         [SetUp]
         public void Setup()
@@ -58,7 +59,8 @@ namespace Nhom_214.Tests
         {
             string actualMsg = "";
             bool isPass = false;
-            driver.Navigate().GoToUrl("http://localhost:5500/login.html");
+            driver.Navigate().GoToUrl("http://localhost:5000/login.html");
+            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
 
             try
             {
@@ -69,7 +71,6 @@ namespace Nhom_214.Tests
 
                     if (actualMsg.ToLower().Contains("thành công"))
                     {
-                        WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(5));
                         wait.Until(d => d.Url.Contains("home") || d.Url.Contains("admin") || d.PageSource.Contains("Đăng xuất"));
                     }
                 }
@@ -77,37 +78,44 @@ namespace Nhom_214.Tests
                 {
                     loginPage.Login(user, pass);
                     loginPage.HandleSweetAlert();
-                    WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(5));
                     var logoutBtn = wait.Until(ExpectedConditions.ElementToBeClickable(By.XPath("//*[contains(text(), 'Đăng xuất')]")));
                     logoutBtn.Click();
                     wait.Until(d => d.Url.Contains("login") || d.PageSource.Contains("Đăng nhập"));
-                    actualMsg = "Đăng nhập"; // Lấy keyword trang chủ
+                    actualMsg = "Đăng nhập";
                 }
 
                 if (actualMsg.ToLower().Contains(expected.ToLower())) isPass = true;
             }
-            catch (Exception ex) { actualMsg = "Lỗi Exception: " + ex.Message; }
+            catch (Exception ex) { actualMsg = "Lỗi: " + ex.Message; }
 
-            WriteResult(rowIndex, "Login", actualMsg, isPass, testCaseId);
-            Assert.IsTrue(isPass, $"Test {testCaseId} FAILED. Actual: {actualMsg}");
+            WriteResultToExcel(rowIndex, actualMsg, isPass, testCaseId);
+            Assert.Multiple(() =>
+            {
+                // Sử dụng Assert.That để NUnit tự điền vào Expected và But was
+                Assert.That(actualMsg.ToLower(), Does.Contain(expected.ToLower()), $"TC_ID: {testCaseId} thất bại!");
+            });
         }
 
-        private void WriteResult(int row, string sheet, string actual, bool isPass, string tcId)
+        private void WriteResultToExcel(int rowIndex, string actual, bool isPass, string tcId)
         {
             using (var stream = new FileStream(excelFilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
             using (var workbook = new XLWorkbook(stream))
             {
-                var ws = workbook.Worksheet(sheet);
-                ws.Cell(row, 6).Value = actual;
-                ws.Cell(row, 7).Value = isPass ? "PASS" : "FAIL";
+                var ws = workbook.Worksheet("Login");
+                ws.Cell(rowIndex, 10).Value = actual;      // Cột J
+                ws.Cell(rowIndex, 11).Value = isPass ? "PASS" : "FAIL"; // Cột K
+
                 if (!isPass)
                 {
                     string path = Path.Combine(screenshotFolder, $"{tcId}_{DateTime.Now:HHmmss}.png");
                     ((ITakesScreenshot)driver).GetScreenshot().SaveAsFile(path);
-                    ws.Cell(row, 8).Value = "Link Ảnh";
-                    ws.Cell(row, 8).SetHyperlink(new XLHyperlink(path));
+                    ws.Cell(rowIndex, 12).Value = "Xem ảnh lỗi"; // Cột L
+                    ws.Cell(rowIndex, 12).SetHyperlink(new XLHyperlink(path));
                 }
+
                 workbook.Save();
+                // In ra Console để Thiên nhìn thấy ngay trong Test Explorer mà không cần mở Excel
+                Console.WriteLine($"[RESULT] {tcId}: {actual} -> {(isPass ? "Passed" : "Failed")}");
             }
         }
 

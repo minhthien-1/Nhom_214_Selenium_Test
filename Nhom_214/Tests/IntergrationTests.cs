@@ -39,7 +39,7 @@ namespace Nhom_214.Tests
             voucherPage = new VoucherPage(driver);
             adminBookingPage = new AdminBookingPage(driver);
 
-            driver.Navigate().GoToUrl("http://localhost:5500/login.html");
+            driver.Navigate().GoToUrl("http://localhost:5000/login.html");
         }
 
         // --- NHÓM TÍCH HỢP: LUỒNG ĐẶT PHÒNG VÀ THANH TOÁN ---
@@ -138,7 +138,7 @@ namespace Nhom_214.Tests
 
             // --- PHASE 3: ADMIN DUYỆT ĐƠN ---
             Console.WriteLine("Phase 3: Admin vào Quản lý đặt phòng và nhấn Duyệt...");
-            driver.Navigate().GoToUrl("http://localhost:5500/admin/bookings.html");
+            driver.Navigate().GoToUrl("http://localhost:5000/admin/bookings.html");
             Thread.Sleep(1500);
 
             adminBookingPage.ClickReload(); // Bấm tải lại danh sách
@@ -162,7 +162,7 @@ namespace Nhom_214.Tests
             loginPage.HandleSweetAlert();
 
             // Vào trang Đơn của tôi
-            driver.Navigate().GoToUrl("http://localhost:5500/my-bookings.html");
+            driver.Navigate().GoToUrl("http://localhost:5000/my-bookings.html");
             Thread.Sleep(1500);
 
             // Tìm thẻ Badge hiển thị trạng thái của đơn đầu tiên
