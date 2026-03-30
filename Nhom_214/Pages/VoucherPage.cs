@@ -23,7 +23,7 @@ namespace Nhom_214.Pages
         private By errorMessage = By.CssSelector(".error-message");
 
         // --- LOCATORS CHO PHẦN TÌM KIẾM ---
-        private By txtSearch = By.Id("searchVoucher"); // LƯU Ý: Đổi ID này nếu web của bạn dùng ID khác cho ô tìm kiếm
+        private By txtSearch = By.Id("searchInput");
         private By voucherRows = By.CssSelector("table tbody tr");
 
         // Truyền driver từ BasePage
@@ -93,7 +93,15 @@ namespace Nhom_214.Pages
         {
             var searchInput = driver.FindElement(txtSearch);
             searchInput.Clear();
+
+            // Gõ từ khóa vào
             searchInput.SendKeys(keyword);
+
+            // Gửi thêm phím Tab để chắc chắn hệ thống nhận biết input đã thay đổi và thực hiện lọc
+            searchInput.SendKeys(Keys.Tab);
+
+            // Đợi một chút để danh sách kịp render lại (Thay vì dùng Thread.Sleep ở ngoài Test, ta xử lý ở đây cho sạch)
+            System.Threading.Thread.Sleep(500);
         }
 
         public int GetSearchResultCount()

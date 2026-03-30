@@ -4,7 +4,10 @@ using OpenQA.Selenium.Support.UI;
 using SeleniumExtras.WaitHelpers;
 using Nhom_214.Pages;
 using Nhom_214.Utilities;
+using ClosedXML.Excel;
 using System;
+using System.IO;
+using System.Collections.Generic;
 using System.Threading;
 
 namespace Nhom_214.Tests
@@ -14,81 +17,101 @@ namespace Nhom_214.Tests
     {
         private IWebDriver driver;
         private LoginPage loginPage;
+        private static string excelFilePath = @"C:\C#\Nhom_214_Selenium_Test\Report_Nhom_214.xlsx";
+        private string screenshotFolder = @"C:\Users\Admin\OneDrive - Ho Chi Minh City University of Foreign Languages and Information Technology - HUFLIT\Pictures\TestFailures";
 
         [SetUp]
         public void Setup()
         {
+            if (!Directory.Exists(screenshotFolder)) Directory.CreateDirectory(screenshotFolder);
             driver = DriverFactory.CreateDriver();
-            // Đảm bảo URL khớp với file HTML của bạn
-            driver.Navigate().GoToUrl("http://localhost:5000/login.html");
+            driver.Manage().Window.Maximize();
             loginPage = new LoginPage(driver);
         }
 
-        // --- NHÓM 1: ĐĂNG NHẬP THÀNH CÔNG ---
-        [TestCase("letho@gmail.com", "12345Tn@", TestName = "Đăng_Nhập_01_Thành_Công_Khách_Hàng")]
-        [TestCase("tnct1@gmail.com", "12345Tn", TestName = "Đăng_Nhập_02_Thành_Công_Quản_Trị_Viên")]
-        public void Dang_Nhap_Thanh_Cong(string u, string p)
+        public static IEnumerable<TestCaseData> GetLoginData()
         {
-            loginPage.Login(u, p);
+            var testCases = new List<TestCaseData>();
+            using (var stream = new FileStream(excelFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var workbook = new XLWorkbook(stream))
+            {
+                var worksheet = workbook.Worksheet("Login");
+                bool isFirst = true; int rowIdx = 0;
+                foreach (var row in worksheet.RowsUsed())
+                {
+                    rowIdx++;
+                    if (isFirst) { isFirst = false; continue; }
+                    string tcId = row.Cell(1).GetString().Trim();
+                    if (string.IsNullOrEmpty(tcId)) continue;
 
-            // Xử lý Popup SweetAlert "Đăng nhập thành công!"
-            // Hàm này sẽ lấy text và tự động nhấn nút OK cho bạn
-            string msg = loginPage.HandleSweetAlert();
-
-            Assert.That(msg.ToLower(), Does.Contain("thành công"));
-
-            // Sau khi tắt Popup, đợi trình duyệt chuyển hướng (về home.html hoặc admin)
-            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(15));
-            wait.Until(d => d.Url.Contains("home") || d.Url.Contains("admin") || d.PageSource.Contains("Đăng xuất"));
-
-            Assert.That(driver.PageSource, Does.Contain("Đăng xuất"));
+                    testCases.Add(new TestCaseData(
+                        tcId, row.Cell(2).GetString().Trim(), row.Cell(3).GetString().Trim(),
+                        row.Cell(4).GetString().Trim(), row.Cell(5).GetString().Trim(), rowIdx
+                    ).SetName(tcId));
+                }
+            }
+            return testCases;
         }
 
-        // --- NHÓM 2: ĐĂNG NHẬP THẤT BẠI ---
-        [TestCase("", "", "nhập đầy đủ", TestName = "Đăng_Nhập_03_Bỏ_Trống_Thông_Tin")]
-        [TestCase("minhthien@gmail.com", "", "nhập đầy đủ", TestName = "Đăng_Nhập_04_Bỏ_Trống_Mật_Khẩu")]
-        [TestCase("taikhoankhongton_tai@gmail.com", "123", "không tồn tại", TestName = "Đăng_Nhập_05_Tài_Khoản_Không_Tồn_Tại")]
-        [TestCase("letho@gmail.com", "matkhausai123", "đăng nhập thất bại sai mật khẩu", TestName = "Đăng_Nhập_06_Sai_Mật_Khẩu")]
-        public void Dang_Nhap_That_Bai(string u, string p, string expectedErr)
+        [Test, TestCaseSource(nameof(GetLoginData))]
+        public void ExecuteLoginTest(string testCaseId, string action, string user, string pass, string expected, int rowIndex)
         {
-            loginPage.Login(u, p);
+            string actualMsg = "";
+            bool isPass = false;
+            driver.Navigate().GoToUrl("http://localhost:5500/login.html");
 
-            // Gọi hàm xử lý SweetAlert để lấy nội dung lỗi và nhấn OK để giải phóng màn hình
-            string actualError = loginPage.HandleSweetAlert();
+            try
+            {
+                if (action.ToLower() == "login")
+                {
+                    loginPage.Login(user, pass);
+                    actualMsg = loginPage.HandleSweetAlert();
 
-            // Kiểm tra xem thông báo lỗi có chứa từ khóa mong muốn không
-            Assert.That(actualError.ToLower(), Does.Contain(expectedErr.ToLower()));
+                    if (actualMsg.ToLower().Contains("thành công"))
+                    {
+                        WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(5));
+                        wait.Until(d => d.Url.Contains("home") || d.Url.Contains("admin") || d.PageSource.Contains("Đăng xuất"));
+                    }
+                }
+                else if (action.ToLower() == "logout")
+                {
+                    loginPage.Login(user, pass);
+                    loginPage.HandleSweetAlert();
+                    WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(5));
+                    var logoutBtn = wait.Until(ExpectedConditions.ElementToBeClickable(By.XPath("//*[contains(text(), 'Đăng xuất')]")));
+                    logoutBtn.Click();
+                    wait.Until(d => d.Url.Contains("login") || d.PageSource.Contains("Đăng nhập"));
+                    actualMsg = "Đăng nhập"; // Lấy keyword trang chủ
+                }
+
+                if (actualMsg.ToLower().Contains(expected.ToLower())) isPass = true;
+            }
+            catch (Exception ex) { actualMsg = "Lỗi Exception: " + ex.Message; }
+
+            WriteResult(rowIndex, "Login", actualMsg, isPass, testCaseId);
+            Assert.IsTrue(isPass, $"Test {testCaseId} FAILED. Actual: {actualMsg}");
         }
 
-        // --- NHÓM 3: ĐĂNG XUẤT ---
-        [Test]
-        public void Dang_Xuat_01_Kiem_Tra_Chuc_Nang()
+        private void WriteResult(int row, string sheet, string actual, bool isPass, string tcId)
         {
-            // 1. Thực hiện đăng nhập thành công trước
-            loginPage.Login("letho@gmail.com", "12345Tn@");
-            loginPage.HandleSweetAlert(); // Nhấn OK trên Popup thành công
-
-            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
-
-            // Đợi cho đến khi nút Đăng xuất xuất hiện trên màn hình
-            IWebElement logoutBtn = wait.Until(ExpectedConditions.ElementToBeClickable(By.XPath("//*[contains(text(), 'Đăng xuất')]")));
-
-            // 2. Bấm nút đăng xuất
-            logoutBtn.Click();
-
-            // 3. Kiểm tra xem đã quay về trang đăng nhập chưa
-            wait.Until(d => d.Url.Contains("login") || d.PageSource.Contains("Đăng nhập"));
-            Assert.That(driver.PageSource, Does.Contain("Đăng nhập"));
+            using (var stream = new FileStream(excelFilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+            using (var workbook = new XLWorkbook(stream))
+            {
+                var ws = workbook.Worksheet(sheet);
+                ws.Cell(row, 6).Value = actual;
+                ws.Cell(row, 7).Value = isPass ? "PASS" : "FAIL";
+                if (!isPass)
+                {
+                    string path = Path.Combine(screenshotFolder, $"{tcId}_{DateTime.Now:HHmmss}.png");
+                    ((ITakesScreenshot)driver).GetScreenshot().SaveAsFile(path);
+                    ws.Cell(row, 8).Value = "Link Ảnh";
+                    ws.Cell(row, 8).SetHyperlink(new XLHyperlink(path));
+                }
+                workbook.Save();
+            }
         }
 
         [TearDown]
-        public void Teardown()
-        {
-            if (driver != null)
-            {
-                driver.Quit();
-                driver.Dispose();
-            }
-        }
+        public void Teardown() { driver?.Quit(); driver?.Dispose(); }
     }
 }
