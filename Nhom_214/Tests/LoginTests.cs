@@ -59,7 +59,7 @@ namespace Nhom_214.Tests
         {
             string actualMsg = "";
             bool isPass = false;
-            driver.Navigate().GoToUrl("http://localhost:5500/login.html");
+            driver.Navigate().GoToUrl("http://localhost:5000/login.html");
             WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
 
             try
@@ -102,15 +102,15 @@ namespace Nhom_214.Tests
             using (var workbook = new XLWorkbook(stream))
             {
                 var ws = workbook.Worksheet("Login");
-                ws.Cell(rowIndex, 10).Value = actual;      // Cột J
-                ws.Cell(rowIndex, 11).Value = isPass ? "PASS" : "FAIL"; // Cột K
+                ws.Cell(rowIndex, 6).Value = actual;      // Cột J
+                ws.Cell(rowIndex, 7).Value = isPass ? "PASS" : "FAIL"; // Cột K
 
                 if (!isPass)
                 {
                     string path = Path.Combine(screenshotFolder, $"{tcId}_{DateTime.Now:HHmmss}.png");
                     ((ITakesScreenshot)driver).GetScreenshot().SaveAsFile(path);
-                    ws.Cell(rowIndex, 12).Value = "Xem ảnh lỗi"; // Cột L
-                    ws.Cell(rowIndex, 12).SetHyperlink(new XLHyperlink(path));
+                    ws.Cell(rowIndex, 8).Value = "Xem ảnh lỗi"; // Cột L
+                    ws.Cell(rowIndex, 8).SetHyperlink(new XLHyperlink(path));
                 }
 
                 workbook.Save();

@@ -56,7 +56,7 @@ namespace Nhom_214.Tests
         [Test, TestCaseSource(nameof(GetRegData))]
         public void ExecuteRegisterTest(string tcId, string name, string user, string email, string phone, string pass, string confirm, string expected, int rowIndex)
         {
-            driver.Navigate().GoToUrl("http://localhost:5500/register.html");
+            driver.Navigate().GoToUrl("http://localhost:5000/register.html");
             string actualMsg = ""; bool isPass = false;
 
             try

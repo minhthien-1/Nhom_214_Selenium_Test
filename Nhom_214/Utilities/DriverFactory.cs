@@ -17,7 +17,7 @@ namespace Nhom_214.Utilities
             var driver = new ChromeDriver();
             driver.Manage().Window.Maximize();
             // Địa chỉ web bạn đang chạy trên VS Code
-            driver.Navigate().GoToUrl("http://localhost:5500");
+            driver.Navigate().GoToUrl("http://localhost:5000");
             return driver;
         }
 

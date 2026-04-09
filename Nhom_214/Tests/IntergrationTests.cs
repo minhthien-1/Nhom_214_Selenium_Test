@@ -10,6 +10,7 @@ using System.IO;
 using System.Collections.Generic;
 using System.Threading;
 using OpenQA.Selenium.Interactions;
+using System.Globalization;
 
 namespace Nhom_214.Tests
 {
@@ -58,8 +59,10 @@ namespace Nhom_214.Tests
 
                     string rawCheckIn = row.Cell(4).GetString().Trim();
                     string rawCheckOut = row.Cell(5).GetString().Trim();
-                    string cleanCheckIn = rawCheckIn.Contains(" ") ? rawCheckIn.Split(' ')[0] : rawCheckIn;
-                    string cleanCheckOut = rawCheckOut.Contains(" ") ? rawCheckOut.Split(' ')[0] : rawCheckOut;
+
+                    // SỬA LỖI INT_01: Chuẩn hóa ngày tháng về yyyy-MM-dd để input web luôn nhận đúng
+                    string cleanCheckIn = ParseDate(rawCheckIn);
+                    string cleanCheckOut = ParseDate(rawCheckOut);
 
                     testCases.Add(new TestCaseData(
                         row.Cell(1).GetString().Trim(),
@@ -75,6 +78,31 @@ namespace Nhom_214.Tests
             return testCases;
         }
 
+        private static string ParseDate(string dateStr)
+        {
+            if (string.IsNullOrWhiteSpace(dateStr)) return "";
+
+            try
+            {
+                // Danh sách các định dạng có thể xuất hiện trong Excel
+                string[] formats = { "d/M/yyyy", "dd/MM/yyyy", "M/d/yyyy", "MM/dd/yyyy", "yyyy-MM-dd" };
+
+                // Cố gắng đọc ngày từ Excel, lấy phần ngày bỏ phần giờ nếu có
+                string datePart = dateStr.Split(' ')[0];
+
+                DateTime dt = DateTime.ParseExact(datePart, formats,
+                    CultureInfo.InvariantCulture, DateTimeStyles.None);
+
+                // TRẢ VỀ ĐỊNH DẠNG dd/MM/yyyy - Thường là định dạng an toàn nhất cho máy VN
+                return dt.ToString("dd/MM/yyyy");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Lỗi parse ngày [{dateStr}]: {ex.Message}");
+                return dateStr; // Trả về nguyên bản nếu không parse được
+            }
+        }
+
         [Test, TestCaseSource(nameof(GetIntegrationData))]
         public void RunIntegrationFlows(string tcId, string flowType, string location, string checkIn, string checkOut, string userEmail, string expected, int rowIndex)
         {
@@ -83,7 +111,7 @@ namespace Nhom_214.Tests
 
             try
             {
-                driver.Navigate().GoToUrl("http://localhost:5500/login.html");
+                driver.Navigate().GoToUrl("http://localhost:5000/login.html");
                 loginPage.Login(userEmail, "12345Tn@");
                 loginPage.HandleSweetAlert();
 
@@ -91,6 +119,27 @@ namespace Nhom_214.Tests
 
                 switch (flowType.ToUpper())
                 {
+                    case "BOOKING_POPULAR":
+                        // SỬA LỖI INT_04: Dùng XPath chính xác dựa trên ảnh chụp màn hình Inspect Element
+                        // Tìm thẻ <a> hoặc thẻ div chứa text hoặc ảnh có alt là địa điểm
+                        string xpathLocation = $"//div[contains(@class, 'destination-card')]//img[@alt='{location}']";
+                        var locationCard = wait.Until(ExpectedConditions.ElementToBeClickable(By.XPath(xpathLocation)));
+
+                        IJavaScriptExecutor jsS = (IJavaScriptExecutor)driver;
+                        jsS.ExecuteScript("arguments[0].scrollIntoView({block: 'center'});", locationCard);
+                        Thread.Sleep(1000);
+                        locationCard.Click();
+
+                        // Đợi trang danh sách phòng tải xong
+                        wait.Until(ExpectedConditions.UrlContains("location="));
+                        Thread.Sleep(1500);
+
+                        bookingPage.SelectRoomFromList();
+                        bookingPage.SelectDates(checkIn, checkOut);
+                        bookingPage.ClickDatPhong();
+                        bookingPage.ClickThanhToan();
+                        actualStatus = bookingPage.HandleBrowserAlert();
+                        break;
                     case "BOOKINGONLY":
                         bookingPage.SearchLocation(location);
                         bookingPage.SelectRoomFromList();
@@ -148,7 +197,7 @@ namespace Nhom_214.Tests
                         bookingPage.HandleBrowserAlert();
 
                         // Bước 2: User Đăng xuất
-                        driver.Navigate().GoToUrl("http://localhost:5500/home.html");
+                        driver.Navigate().GoToUrl("http://localhost:5000/home.html");
                         wait.Until(ExpectedConditions.UrlContains("home.html"));
                         Thread.Sleep(1000);
 
@@ -170,13 +219,13 @@ namespace Nhom_214.Tests
                         driver.Manage().Cookies.DeleteAllCookies();
 
                         // Bước 3: Admin Duyệt
-                        driver.Navigate().GoToUrl("http://localhost:5500/login.html");
+                        driver.Navigate().GoToUrl("http://localhost:5000/login.html");
                         wait.Until(ExpectedConditions.ElementIsVisible(By.Id("email")));
 
                         loginPage.Login("tnct1@gmail.com", "12345Tn");
                         loginPage.HandleSweetAlert();
 
-                        driver.Navigate().GoToUrl("http://localhost:5500/admin/bookings.html");
+                        driver.Navigate().GoToUrl("http://localhost:5000/admin/bookings.html");
                         wait.Until(ExpectedConditions.UrlContains("admin/bookings"));
                         Thread.Sleep(1500);
 
@@ -207,13 +256,13 @@ namespace Nhom_214.Tests
                         driver.Manage().Cookies.DeleteAllCookies();
 
                         // Bước 5: User Check Lại
-                        driver.Navigate().GoToUrl("http://localhost:5500/login.html");
+                        driver.Navigate().GoToUrl("http://localhost:5000/login.html");
                         wait.Until(ExpectedConditions.ElementIsVisible(By.Id("email")));
 
                         loginPage.Login(userEmail, "12345Tn@");
                         loginPage.HandleSweetAlert();
 
-                        driver.Navigate().GoToUrl("http://localhost:5500/my_bookings.html");
+                        driver.Navigate().GoToUrl("http://localhost:5000/my_bookings.html");
                         wait.Until(ExpectedConditions.UrlContains("my_bookings.html"));
 
                         string badgeXPath = "(//*[contains(@class, 'status status-pending') or contains(text(), 'Đã duyệt') or contains(text(), 'chờ xác nhận')])[1]";

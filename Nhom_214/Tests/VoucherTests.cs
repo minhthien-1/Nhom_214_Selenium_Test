@@ -27,7 +27,7 @@ namespace Nhom_214.Tests
             driver.Manage().Window.Maximize();
             voucherPage = new VoucherPage(driver);
 
-            driver.Navigate().GoToUrl("http://localhost:5500/login.html");
+            driver.Navigate().GoToUrl("http://localhost:5000/login.html");
             driver.FindElement(By.Id("email")).SendKeys("tnct1@gmail.com");
             driver.FindElement(By.Id("password")).SendKeys("12345Tn");
             driver.FindElement(By.Name("login")).Click();
