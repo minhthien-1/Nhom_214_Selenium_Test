@@ -21,7 +21,7 @@ namespace Nhom_214.Pages
 
         public void UpdateRoomImage(string roomId, string imageName)
         {
-            driver.Navigate().GoToUrl("http://localhost:5000/admin/rooms.html");
+            driver.Navigate().GoToUrl("http://localhost:5500/admin/rooms.html");
 
             // Tìm nút sửa của đúng phòng cần đổi (Giả định roomId nằm trong thuộc tính data)
             var editBtn = driver.FindElement(By.CssSelector($"button[data-room-id='{roomId}']"));
@@ -36,7 +36,7 @@ namespace Nhom_214.Pages
 
         public void CheckCustomerName(string expectedName)
         {
-            driver.Navigate().GoToUrl("http://localhost:5000/admin/customers.html");
+            driver.Navigate().GoToUrl("http://localhost:5500/admin/customers.html");
             var customerTable = driver.FindElement(By.Id("customerTable"));
             // Kiểm tra xem tên có tồn tại trong bảng không
             if (!customerTable.Text.Contains(expectedName))

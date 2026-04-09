@@ -58,7 +58,7 @@ namespace Nhom_214.Tests
         {
             string actualMsg = ""; bool isPass = false;
             WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
-            driver.Navigate().GoToUrl("http://localhost:5000/home.html");
+            driver.Navigate().GoToUrl("http://localhost:5500/home.html");
 
             try
             {

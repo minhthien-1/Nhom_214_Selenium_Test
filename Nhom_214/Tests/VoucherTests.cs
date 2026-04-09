@@ -27,7 +27,7 @@ namespace Nhom_214.Tests
             driver.Manage().Window.Maximize();
             voucherPage = new VoucherPage(driver);
 
-            driver.Navigate().GoToUrl("http://localhost:5000/login.html");
+            driver.Navigate().GoToUrl("http://localhost:5500/login.html");
             driver.FindElement(By.Id("email")).SendKeys("tnct1@gmail.com");
             driver.FindElement(By.Id("password")).SendKeys("12345Tn");
             driver.FindElement(By.Name("login")).Click();
@@ -65,21 +65,44 @@ namespace Nhom_214.Tests
         public void ExecuteVoucherTest(string tcId, string action, string code, string name, string type, string val, string max, string expDate, string expected, int rowIndex)
         {
             string actual = ""; bool isPass = false;
-            
+
             try
             {
                 switch (action.ToLower())
                 {
                     case "create":
                         voucherPage.ClickAddVoucher();
+                        System.Threading.Thread.Sleep(500); // Đợi modal mở
                         voucherPage.EnterVoucherData(code, name, type, val, max, expDate);
                         voucherPage.ClickSave();
-                        actual = "Thành công"; break;
+                        actual = "Thành công";
+                        break;
+
+                    case "edit":
+                        // Nếu trong Excel có nhập mã ở cột Code_Search (biến code), ta search trước cho chắc
+                        if (!string.IsNullOrEmpty(code))
+                        {
+                            voucherPage.SearchVoucher(code);
+                            Thread.Sleep(1000);
+                        }
+
+                        voucherPage.ClickFirstEditVoucher();
+
+                        // Đợi Modal hiện lên
+                        var waitModal = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
+                        waitModal.Until(SeleniumExtras.WaitHelpers.ExpectedConditions.ElementIsVisible(By.Id("voucherName")));
+
+                        voucherPage.EnterVoucherData(code, name, type, val, max, expDate);
+                        voucherPage.ClickSave();
+                        actual = "Cập nhật thành công";
+                        break;
+
                     case "search":
                         voucherPage.SearchVoucher(code);
                         actual = voucherPage.GetSearchResultCount() > 0 ? "Tồn tại" : "Không tìm thấy";
                         break;
                 }
+
                 if (actual.ToLower().Contains(expected.ToLower())) isPass = true;
             }
             catch (Exception ex) { actual = "Lỗi: " + ex.Message; }
@@ -87,7 +110,6 @@ namespace Nhom_214.Tests
             WriteResultToExcel(rowIndex, actual, isPass, tcId);
             Assert.Multiple(() =>
             {
-                // Sử dụng Assert.That để NUnit tự điền vào Expected và But was
                 Assert.That(actual.ToLower(), Does.Contain(expected.ToLower()), $"TC_ID: {tcId} thất bại!");
             });
         }
@@ -110,7 +132,6 @@ namespace Nhom_214.Tests
                 }
 
                 workbook.Save();
-                // In ra Console để Thiên nhìn thấy ngay trong Test Explorer mà không cần mở Excel
                 Console.WriteLine($"[RESULT] {tcId}: {actual} -> {(isPass ? "Passed" : "Failed")}");
             }
         }

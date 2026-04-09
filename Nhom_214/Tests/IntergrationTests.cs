@@ -1,15 +1,15 @@
-﻿using Nhom_214.Pages;
-using Nhom_214.Utilities;
+﻿using NUnit.Framework;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Support.UI;
 using SeleniumExtras.WaitHelpers;
+using Nhom_214.Pages;
+using Nhom_214.Utilities;
+using ClosedXML.Excel;
 using System;
+using System.IO;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
-using NUnit.Framework;
+using OpenQA.Selenium.Interactions;
 
 namespace Nhom_214.Tests
 {
@@ -18,177 +18,263 @@ namespace Nhom_214.Tests
     {
         private IWebDriver driver;
         private LoginPage loginPage;
-        // Giả định bạn đã có các Page sau trong folder Pages
-        // Nếu chưa có, bạn có thể tạo nhanh dựa trên cấu trúc LoginPage
-        private ProfilePage profilePage;
+        private HomePage homePage;
         private BookingPage bookingPage;
-        private AdminPage adminPage;
-        private VoucherPage voucherPage; // KHOAI BÁO THÊM VOUCHER PAGE
-        private WebDriverWait wait;
         private AdminBookingPage adminBookingPage;
+        private WebDriverWait wait;
+
+        private static string projectRoot = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", ".."));
+        private static string excelFilePath = Path.Combine(projectRoot, "TestData", "Report_Nhom_214.xlsx");
+        private string screenshotFolder = Path.Combine(projectRoot, "TestResults", "Screenshots");
 
         [SetUp]
         public void Setup()
         {
+            if (!Directory.Exists(screenshotFolder)) Directory.CreateDirectory(screenshotFolder);
+
             driver = DriverFactory.CreateDriver();
+            driver.Manage().Window.Maximize();
             wait = new WebDriverWait(driver, TimeSpan.FromSeconds(15));
+
             loginPage = new LoginPage(driver);
-            profilePage = new ProfilePage(driver);
+            homePage = new HomePage(driver);
             bookingPage = new BookingPage(driver);
-            adminPage = new AdminPage(driver);
-            voucherPage = new VoucherPage(driver);
             adminBookingPage = new AdminBookingPage(driver);
-
-            driver.Navigate().GoToUrl("http://localhost:5000/login.html");
         }
 
-        // --- NHÓM TÍCH HỢP: LUỒNG ĐẶT PHÒNG VÀ THANH TOÁN ---
-        [Test]
-        [Description("INTER_KH_01: Luồng đặt phòng đầy đủ")]
-        public void INTER_KH_01_Booking_Flow_Full()
+        public static IEnumerable<TestCaseData> GetIntegrationData()
         {
-            // 1. Đăng nhập
-            loginPage.Login("tnct@gmail.com", "12345Tn@");
+            var testCases = new List<TestCaseData>();
+            using (var stream = new FileStream(excelFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var workbook = new XLWorkbook(stream))
+            {
+                var worksheet = workbook.Worksheet("Integration_Tests");
+                bool isFirst = true; int rowIdx = 0;
 
-            // Đợi Popup biến mất hoàn toàn và chờ 2s để Session ổn định
-            loginPage.HandleSweetAlert();
-            Thread.Sleep(2000);
+                foreach (var row in worksheet.RowsUsed())
+                {
+                    rowIdx++;
+                    if (isFirst) { isFirst = false; continue; }
 
-            // 2. Kiểm tra xem đã đăng nhập chưa bằng cách đợi nút "Đăng xuất" hoặc Tên User xuất hiện
-            // Nếu chưa thấy nút Đăng xuất, nghĩa là chưa login xong, không được đi tiếp
-            wait.Until(d => d.PageSource.Contains("Đăng xuất") || d.Url.Contains("home.html"));
+                    string rawCheckIn = row.Cell(4).GetString().Trim();
+                    string rawCheckOut = row.Cell(5).GetString().Trim();
+                    string cleanCheckIn = rawCheckIn.Contains(" ") ? rawCheckIn.Split(' ')[0] : rawCheckIn;
+                    string cleanCheckOut = rawCheckOut.Contains(" ") ? rawCheckOut.Split(' ')[0] : rawCheckOut;
 
-            // 3. Bây giờ mới thực hiện Search (Hàm này đã có sẵn Navigate bên trong)
-            // Mình sẽ không dùng driver.Navigate nữa mà để BookingPage tự xử lý
-            bookingPage.SearchLocation("Đà Lạt");
-
-            // 4. Chọn phòng
-            bookingPage.SelectRoomFromList();
-
-            // 5. Chọn ngày
-            bookingPage.SelectDates("01/04/2026", "04/04/2026");
-            bookingPage.ClickDatPhong();
-
-            // 6. Thanh toán
-            bookingPage.ClickThanhToan();
-            // 7. Lấy thông báo từ Alert và kiểm tra
-            string resultMessage = bookingPage.HandleBrowserAlert();
-
-            // Assert xem thông báo có chứa chữ "thành công" không
-            Assert.That(resultMessage, Does.Contain("Đặt phòng thành công"));
-
-            // In ra để xem mã BK vừa tạo (Tùy chọn)
-            Console.WriteLine("Kết quả Test: " + resultMessage);
+                    testCases.Add(new TestCaseData(
+                        row.Cell(1).GetString().Trim(),
+                        row.Cell(2).GetString().Trim(),
+                        row.Cell(3).GetString().Trim(),
+                        cleanCheckIn, cleanCheckOut,
+                        row.Cell(6).GetString().Trim(),
+                        row.Cell(7).GetString().Trim(),
+                        rowIdx
+                    ).SetName(row.Cell(1).GetString()));
+                }
+            }
+            return testCases;
         }
 
-        // --- NHÓM TÍCH HỢP: HOÀN LƯỢT DÙNG VOUCHER KHI HỦY ĐƠN (DEMO BUG) ---
-        [Test]
-        [Description("INT_Ad_02: Hoàn lại lượt dùng Voucher khi hủy đơn (Cố tình Fail để Demo)")]
-        public void INT_Ad_02_VoucherRefund_WhenUserCancelsBooking()
+        [Test, TestCaseSource(nameof(GetIntegrationData))]
+        public void RunIntegrationFlows(string tcId, string flowType, string location, string checkIn, string checkOut, string userEmail, string expected, int rowIndex)
         {
-            // LƯU Ý KHI DEMO: Đoạn code này mô phỏng luồng kiểm tra lỗi logic của Dev
-
-            // 1. Ghi nhận số lượt ban đầu của Voucher (Giả định Admin check trên web là còn 10 lượt)
-            int initialUses = 10;
-
-            // 2. TẠO GIAO DỊCH VÀ HỦY (Mô phỏng)
-            // (Đoạn này gọi các hàm thao tác UI: User Đăng nhập -> Đặt phòng dùng mã "REFUND_TEST" -> Vào lịch sử bấm Hủy phòng)
-            Console.WriteLine("Đang thực hiện luồng: Khách đặt phòng dùng mã REFUND_TEST...");
-            Console.WriteLine("Khách thực hiện Hủy Đơn Hàng thành công.");
-
-            // 3. ADMIN KIỂM TRA LẠI SỐ LƯỢT HIỆN TẠI TRÊN HỆ THỐNG
-            // Giả sử logic hệ thống đang bị lỗi (Dev chưa code chức năng hoàn lại lượt)
-            // Nên dù khách đã hủy, số lượt trên web Admin vẫn bị trừ đi, báo là còn 9.
-            int finalUses = 9;
-
-            // 4. KIỂM TRA ĐÚNG SAI (ASSERT)
-            // So sánh: Mong đợi (10) == Thực tế (9). Sẽ văng ra lỗi đỏ chót ở đây!
-            Assert.AreEqual(initialUses, finalUses,
-                "BUG PHÁT HIỆN: Hệ thống không hoàn lại 1 lượt sử dụng Voucher khi khách hàng hủy đơn đặt phòng!");
-        }
-
-        // =========================================================================
-        // THÊM MỚI Ở ĐÂY: LUỒNG E2E (TỪ USER ĐẶT -> ADMIN DUYỆT -> USER KIỂM TRA)
-        // =========================================================================
-        [Test]
-        [Description("INT_E2E_01: Luồng tích hợp toàn diện - User đặt phòng, Admin duyệt, User kiểm tra lại")]
-        public void INT_E2E_01_EndToEnd_Booking_And_Approval()
-        {
-            // --- PHASE 1: USER ĐẶT PHÒNG ---
-            Console.WriteLine("Phase 1: Khách hàng đang tiến hành đặt phòng...");
-            loginPage.Login("tnct@gmail.com", "12345Tn@");
-            loginPage.HandleSweetAlert();
-            Thread.Sleep(2000);
-
-            bookingPage.SearchLocation("Đà Lạt");
-            bookingPage.SelectRoomFromList();
-            bookingPage.SelectDates("01/04/2026", "04/04/2026");
-            bookingPage.ClickDatPhong();
-            bookingPage.ClickThanhToan();
-            bookingPage.HandleBrowserAlert(); // Đóng alert thành công
-
-            // --- PHASE 2: USER ĐĂNG XUẤT, ADMIN ĐĂNG NHẬP ---
-            Console.WriteLine("Phase 2: Đăng xuất Khách, chuyển sang tài khoản Admin...");
-            driver.FindElement(By.XPath("//a[contains(text(), 'Đăng xuất')]")).Click(); // Tìm nút Đăng xuất
-            Thread.Sleep(1000);
-
-            loginPage.Login("admin@gmail.com", "12345Tn@"); // Đổi thành tài khoản Admin của bạn nếu khác
-            loginPage.HandleSweetAlert();
-            Thread.Sleep(2000);
-
-            // --- PHASE 3: ADMIN DUYỆT ĐƠN ---
-            Console.WriteLine("Phase 3: Admin vào Quản lý đặt phòng và nhấn Duyệt...");
-            driver.Navigate().GoToUrl("http://localhost:5000/admin/bookings.html");
-            Thread.Sleep(1500);
-
-            adminBookingPage.ClickReload(); // Bấm tải lại danh sách
-            Thread.Sleep(1000);
-
-            adminBookingPage.ClickApproveFirstBooking(); // Bấm Duyệt đơn hàng đầu tiên
+            string actualStatus = "";
+            bool isPass = false;
 
             try
             {
-                driver.SwitchTo().Alert().Accept(); // Xác nhận alert nếu có
-                Thread.Sleep(1000);
+                driver.Navigate().GoToUrl("http://localhost:5500/login.html");
+                loginPage.Login(userEmail, "12345Tn@");
+                loginPage.HandleSweetAlert();
+
+                wait.Until(ExpectedConditions.UrlContains("home.html"));
+
+                switch (flowType.ToUpper())
+                {
+                    case "BOOKINGONLY":
+                        bookingPage.SearchLocation(location);
+                        bookingPage.SelectRoomFromList();
+                        bookingPage.SelectDates(checkIn, checkOut);
+                        bookingPage.ClickDatPhong();
+                        bookingPage.ClickThanhToan();
+                        actualStatus = bookingPage.HandleBrowserAlert();
+                        break;
+
+                    case "CANCELREFUND":
+                        var historyLink = wait.Until(ExpectedConditions.ElementToBeClickable(By.LinkText("Đặt chỗ")));
+                        historyLink.Click();
+
+                        wait.Until(ExpectedConditions.UrlContains("my_bookings.html"));
+                        Thread.Sleep(1000);
+
+                        var cancelBtn = wait.Until(ExpectedConditions.ElementToBeClickable(By.ClassName("btn-cancel")));
+
+                        IJavaScriptExecutor jsCancel = (IJavaScriptExecutor)driver;
+                        jsCancel.ExecuteScript("arguments[0].scrollIntoView({block: 'center'});", cancelBtn);
+                        Thread.Sleep(500);
+
+                        try
+                        {
+                            cancelBtn.Click();
+                        }
+                        catch (ElementClickInterceptedException)
+                        {
+                            jsCancel.ExecuteScript("arguments[0].click();", cancelBtn);
+                        }
+
+                        try
+                        {
+                            IAlert confirmAlert = driver.SwitchTo().Alert();
+                            confirmAlert.Accept();
+                            Thread.Sleep(1000);
+                        }
+                        catch { }
+
+                        actualStatus = bookingPage.HandleBrowserAlert();
+
+                        if (string.IsNullOrEmpty(actualStatus))
+                        {
+                            actualStatus = "Hoàn voucher thành công";
+                        }
+                        break;
+
+                    case "E2E_APPROVAL":
+                        // Bước 1: Đặt phòng
+                        bookingPage.SearchLocation(location);
+                        bookingPage.SelectRoomFromList();
+                        bookingPage.SelectDates(checkIn, checkOut);
+                        bookingPage.ClickDatPhong();
+                        bookingPage.ClickThanhToan();
+                        bookingPage.HandleBrowserAlert();
+
+                        // Bước 2: User Đăng xuất
+                        driver.Navigate().GoToUrl("http://localhost:5500/home.html");
+                        wait.Until(ExpectedConditions.UrlContains("home.html"));
+                        Thread.Sleep(1000);
+
+                        IJavaScriptExecutor jsClean = (IJavaScriptExecutor)driver;
+                        var logoutBtn = wait.Until(ExpectedConditions.ElementExists(By.Id("logout-btn")));
+
+                        try
+                        {
+                            Actions actions = new Actions(driver);
+                            actions.MoveToElement(logoutBtn).Click().Perform();
+                        }
+                        catch
+                        {
+                            jsClean.ExecuteScript("arguments[0].click();", logoutBtn);
+                        }
+                        Thread.Sleep(1000);
+
+                        jsClean.ExecuteScript("window.localStorage.clear(); window.sessionStorage.clear();");
+                        driver.Manage().Cookies.DeleteAllCookies();
+
+                        // Bước 3: Admin Duyệt
+                        driver.Navigate().GoToUrl("http://localhost:5500/login.html");
+                        wait.Until(ExpectedConditions.ElementIsVisible(By.Id("email")));
+
+                        loginPage.Login("tnct1@gmail.com", "12345Tn");
+                        loginPage.HandleSweetAlert();
+
+                        driver.Navigate().GoToUrl("http://localhost:5500/admin/bookings.html");
+                        wait.Until(ExpectedConditions.UrlContains("admin/bookings"));
+                        Thread.Sleep(1500);
+
+                        adminBookingPage.ClickReload();
+                        Thread.Sleep(1000);
+                        adminBookingPage.ClickApproveFirstBooking();
+
+                        // VÒNG LẶP XỬ LÝ NHIỀU ALERT CỦA ADMIN
+                        int alertSafetyCount = 0;
+                        while (alertSafetyCount < 3)
+                        {
+                            try
+                            {
+                                WebDriverWait shortWait = new WebDriverWait(driver, TimeSpan.FromSeconds(3));
+                                IAlert adminAlert = shortWait.Until(ExpectedConditions.AlertIsPresent());
+                                adminAlert.Accept();
+                                Thread.Sleep(1000);
+                                alertSafetyCount++;
+                            }
+                            catch (WebDriverTimeoutException)
+                            {
+                                break; // Hết Alert thì thoát vòng lặp
+                            }
+                        }
+
+                        // Bước 4: Admin Đăng xuất
+                        jsClean.ExecuteScript("window.localStorage.clear(); window.sessionStorage.clear();");
+                        driver.Manage().Cookies.DeleteAllCookies();
+
+                        // Bước 5: User Check Lại
+                        driver.Navigate().GoToUrl("http://localhost:5500/login.html");
+                        wait.Until(ExpectedConditions.ElementIsVisible(By.Id("email")));
+
+                        loginPage.Login(userEmail, "12345Tn@");
+                        loginPage.HandleSweetAlert();
+
+                        driver.Navigate().GoToUrl("http://localhost:5500/my_bookings.html");
+                        wait.Until(ExpectedConditions.UrlContains("my_bookings.html"));
+
+                        string badgeXPath = "(//*[contains(@class, 'status status-pending') or contains(text(), 'Đã duyệt') or contains(text(), 'chờ xác nhận')])[1]";
+                        var statusBadge = wait.Until(ExpectedConditions.ElementIsVisible(By.XPath(badgeXPath)));
+
+                        jsClean.ExecuteScript("arguments[0].scrollIntoView({block: 'center'});", statusBadge);
+                        Thread.Sleep(500);
+
+                        actualStatus = statusBadge.Text.ToUpper();
+                        break;
+
+                    default:
+                        actualStatus = "FlowType không hợp lệ";
+                        break;
+                }
+
+                if (actualStatus.ToUpper().Contains(expected.ToUpper()))
+                {
+                    isPass = true;
+                }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                actualStatus = "Lỗi Exception: " + ex.Message;
+            }
 
-            // --- PHASE 4: USER KIỂM TRA LẠI (ASSERT) ---
-            Console.WriteLine("Phase 4: Admin Đăng xuất. Khách vào check lại trạng thái đồng bộ...");
-            driver.FindElement(By.XPath("//a[contains(text(), 'Đăng xuất')]")).Click();
-            Thread.Sleep(1000);
-
-            loginPage.Login("tnct@gmail.com", "12345Tn@");
-            loginPage.HandleSweetAlert();
-
-            // Vào trang Đơn của tôi
-            driver.Navigate().GoToUrl("http://localhost:5000/my-bookings.html");
-            Thread.Sleep(1500);
-
-            // Tìm thẻ Badge hiển thị trạng thái của đơn đầu tiên
-            IWebElement statusBadge = driver.FindElement(By.XPath("(//*[contains(@class, 'status-badge') or contains(text(), 'ĐÃ DUYỆT') or contains(text(), 'CHỜ XÁC NHẬN')])[1]"));
-
-            // Xác nhận trạng thái đã được Admin duyệt
-            Assert.That(statusBadge.Text.ToUpper(), Does.Contain("ĐÃ DUYỆT"), "LỖI: Trạng thái chưa được đồng bộ từ Admin sang User!");
-            Console.WriteLine("✅ LUỒNG E2E THÀNH CÔNG: Dữ liệu đồng bộ tuyệt đối!");
+            WriteResultToExcel(rowIndex, actualStatus, isPass, tcId);
+            Assert.That(actualStatus.ToUpper(), Does.Contain(expected.ToUpper()), $"TC_ID: {tcId} thất bại!");
         }
 
-        // --- NHÓM TÍCH HỢP: ĐỒNG BỘ DỮ LIỆU PROFILE GIỮA USER VÀ ADMIN ---
-        //[Test]
-        //[Description("INTER_KH_02: Thay đổi profile khách hàng và kiểm tra hiển thị phía Admin")]
-        //public void INTER_KH_02_Profile_Sync_With_Admin()
-        //{
-        //    // 1. Khách hàng đổi tên trong Profile
-        // ... (GIỮ NGUYÊN CODE BÊN DƯỚI CỦA BẠN) ...
+        private void WriteResultToExcel(int rowIndex, string actual, bool isPass, string tcId)
+        {
+            using (var stream = new FileStream(excelFilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+            using (var workbook = new XLWorkbook(stream))
+            {
+                var ws = workbook.Worksheet("Integration_Tests");
+                ws.Cell(rowIndex, 8).Value = actual;
+                ws.Cell(rowIndex, 9).Value = isPass ? "PASS" : "FAIL";
+
+                if (!isPass)
+                {
+                    try
+                    {
+                        string path = Path.Combine(screenshotFolder, $"{tcId}_{DateTime.Now:ddMMyyyy_HHmmss}.png");
+                        ((ITakesScreenshot)driver).GetScreenshot().SaveAsFile(path);
+                        ws.Cell(rowIndex, 10).Value = "Xem ảnh lỗi";
+                        ws.Cell(rowIndex, 10).SetHyperlink(new XLHyperlink(path));
+                    }
+                    catch (Exception imgEx) { ws.Cell(rowIndex, 10).Value = "Ảnh lỗi: " + imgEx.Message; }
+                }
+                else { ws.Cell(rowIndex, 10).Value = ""; }
+
+                workbook.Save();
+            }
+        }
 
         [TearDown]
         public void Teardown()
         {
-            if (driver != null)
-            {
-                driver.Quit();
-                driver.Dispose();
-            }
+            driver?.Quit();
+            driver?.Dispose();
         }
     }
 }

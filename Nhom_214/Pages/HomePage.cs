@@ -14,7 +14,7 @@ namespace Nhom_214.Pages
 
         public IWebElement SearchInput => _driver.FindElement(By.Id("location"));
         public IWebElement SearchBtn => _driver.FindElement(By.Id("searchBtn"));
-        public IWebElement LogoutBtn => _driver.FindElement(By.LinkText("Đăng xuất"));
+        public IWebElement LogoutBtn => _driver.FindElement(By.Id("logout-btn"));
 
         public void Search(string location)
         {
